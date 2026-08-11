@@ -453,6 +453,12 @@
           <select id="ppl-dept-input" style="max-width:180px"></select>
           <button class="btn" id="ppl-add" style="flex:0 0 auto">＋ 新增人員</button>
         </div>
+        <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="sub" style="margin:0">一鍵排序：</span>
+          <button class="btn xs ghost" id="ppl-sort-name">依姓名</button>
+          <button class="btn xs ghost" id="ppl-sort-dept">依課室</button>
+          <span class="sub" style="margin:0;font-size:12px">或用每列 ▲▼ 手動調整順序</span>
+        </div>
         <div id="ppl-list"></div>
       </div>
     </div>
@@ -1040,6 +1046,15 @@ function renderOverviewTable(){
 /* =========================================================
    報表（參與率 / 出席）
    ========================================================= */
+/* 排序工具：陣列搬移；課室依 state.departments 的順序（未列到的排最後） */
+function arrMove(arr,i,j){ if(i<0||i>=arr.length||j<0||j>=arr.length) return; const [x]=arr.splice(i,1); arr.splice(j,0,x); }
+function orderedDeptKeys(keys){
+  const order=state.departments||[];
+  const inOrder=order.filter(d=>keys.includes(d));
+  const extras=keys.filter(d=>!order.includes(d)).sort();   // 未分課、或不在清單中的
+  return [...inOrder, ...extras];
+}
+
 function renderReport(){ bindMonthSelect($('#report-month'), renderReportBody); renderReportBody(); }
 
 function renderReportBody(){
@@ -1067,7 +1082,7 @@ function renderReportBody(){
   const depts={}; ppl.forEach(p=>{ const d=p.dept||'未分課'; (depts[d]=depts[d]||[]).push(p); });
   let dHead=`<thead><tr><th>課室</th><th>人數</th><th>已達標</th><th>達標率</th><th>報名場次</th><th>出席場次</th></tr></thead>`;
   let dBody='<tbody>';
-  Object.keys(depts).sort().forEach(d=>{
+  orderedDeptKeys(Object.keys(depts)).forEach(d=>{
     const mem=depts[d];
     const part=mem.filter(p=>byPerson[p.id].hours>=personTarget(p)).length;
     const su=mem.reduce((a,p)=>a+byPerson[p.id].signups,0);
@@ -1083,7 +1098,7 @@ function renderReportBody(){
   if(!under.length){ nbox.innerHTML=`<p class="sub" style="margin:0">本月所有啟用人員時數都已達標 🎉</p>`; }
   else {
     const nd={}; under.forEach(p=>{ const d=p.dept||'未分課'; (nd[d]=nd[d]||[]).push(p); });
-    nbox.innerHTML=Object.keys(nd).sort().map(d=>`
+    nbox.innerHTML=orderedDeptKeys(Object.keys(nd)).map(d=>`
       <div style="margin-bottom:12px">
         <div style="font-weight:700;margin-bottom:6px">${d} <span class="count-badge">（${nd[d].length} 人）</span></div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
@@ -1408,6 +1423,10 @@ function renderPeople(){
   const box=$('#ppl-list');
   box.innerHTML=state.people.map(p=>`
     <div class="list-item ${p.active?'':'inactive'}" data-id="${p.id}">
+      <span style="display:flex;flex-direction:column;gap:1px">
+        <button class="btn xs ghost up" title="上移" style="padding:1px 6px;line-height:1.1">▲</button>
+        <button class="btn xs ghost down" title="下移" style="padding:1px 6px;line-height:1.1">▼</button>
+      </span>
       ${avatarHTML(p)}
       <span class="grow">${p.name} ${p.supervisor?'<span class="pill blue">主管</span>':''}${p.active?'':'<span class="pill gray">已停用</span>'}</span>
       <select class="dept-in" style="max-width:130px" title="課室">${deptSelectHTML(p.dept||'')}</select>
@@ -1418,6 +1437,8 @@ function renderPeople(){
     </div>`).join('');
   box.querySelectorAll('.list-item').forEach(row=>{
     const id=row.dataset.id;
+    row.querySelector('.up').onclick=()=>{ const i=state.people.findIndex(x=>x.id===id); if(i>0){ arrMove(state.people,i,i-1); save(); renderPeople(); } };
+    row.querySelector('.down').onclick=()=>{ const i=state.people.findIndex(x=>x.id===id); if(i<state.people.length-1){ arrMove(state.people,i,i+1); save(); renderPeople(); } };
     row.querySelector('.dept-in').onchange=e=>{ const p=state.people.find(x=>x.id===id); p.dept=e.target.value; save(); };
     row.querySelector('.mgr-in').onchange=e=>{ const p=state.people.find(x=>x.id===id); p.supervisor=e.target.checked; save(); renderPeople(); };
     row.querySelector('.av').onclick=()=>uploadAvatar(id);
@@ -1436,6 +1457,8 @@ $('#ppl-add').onclick=()=>{ const v=$('#ppl-input').value.trim(); if(!v)return;
   const dept=$('#ppl-dept-input').value;
   state.people.push({id:uid('p'),name:v,active:true,avatar:'',dept}); save(); $('#ppl-input').value=''; renderPeople(); toast('已新增人員'); };
 $('#ppl-input').addEventListener('keydown',e=>{ if(e.key==='Enter')$('#ppl-add').click(); });
+$('#ppl-sort-name').onclick=()=>{ state.people.sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')); save(); renderPeople(); toast('已依姓名排序'); };
+$('#ppl-sort-dept').onclick=()=>{ const di=d=>{ const k=(state.departments||[]).indexOf(d||''); return k<0?999:k; }; state.people.sort((a,b)=> di(a.dept)-di(b.dept) || a.name.localeCompare(b.name,'zh-Hant')); save(); renderPeople(); toast('已依課室排序'); };
 
 /* =========================================================
    設定 - 課室
@@ -1447,6 +1470,10 @@ function renderDeptMgr(){
   if(!state.departments.length){ box.innerHTML=`<p class="sub" style="margin:0">尚無課室，請先新增。</p>`; return; }
   box.innerHTML=state.departments.map((d,i)=>`
     <div class="list-item" data-i="${i}">
+      <span style="display:flex;flex-direction:column;gap:1px">
+        <button class="btn xs ghost up" title="上移" style="padding:1px 6px;line-height:1.1">▲</button>
+        <button class="btn xs ghost down" title="下移" style="padding:1px 6px;line-height:1.1">▼</button>
+      </span>
       <input type="text" class="dept-name" value="${d}" style="max-width:220px">
       <span class="grow count-badge">${counts[d]||0} 人</span>
       <button class="btn xs ghost rename">更名</button>
@@ -1454,6 +1481,8 @@ function renderDeptMgr(){
     </div>`).join('');
   box.querySelectorAll('.list-item').forEach(row=>{
     const i=+row.dataset.i, old=state.departments[i];
+    row.querySelector('.up').onclick=()=>{ if(i>0){ arrMove(state.departments,i,i-1); save(); renderDeptMgr(); renderPeople(); } };
+    row.querySelector('.down').onclick=()=>{ if(i<state.departments.length-1){ arrMove(state.departments,i,i+1); save(); renderDeptMgr(); renderPeople(); } };
     const doRename=()=>{ const nv=row.querySelector('.dept-name').value.trim();
       if(!nv||nv===old){ row.querySelector('.dept-name').value=old; return; }
       if(state.departments.includes(nv)){ toast('課室名稱重複'); row.querySelector('.dept-name').value=old; return; }
