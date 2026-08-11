@@ -572,15 +572,22 @@ function setCloudStatus(mode){
   else el.innerHTML='目前資料存在此瀏覽器（localStorage），未連線雲端。';
 }
 
-let cfgTimer=null;
+let cfgTimer=null, lastCfgJSON=null;
 function sbPushConfig(){
   if(!sb||!cloudReady) return;
+  const json=JSON.stringify(configData());
+  if(json===lastCfgJSON) return;          // 設定沒變（例如只是報名/出席）→ 不回寫、不觸發雲端回音
   clearTimeout(cfgTimer);
   cfgTimer=setTimeout(async()=>{
-    const {error}=await sb.from('volunteer_config').upsert({id:1,data:configData()});
-    if(error) toast('⚠️ 雲端儲存失敗，資料暫存本機');
+    lastCfgJSON=json;
+    const {error}=await sb.from('volunteer_config').upsert({id:1,data:JSON.parse(json)});
+    if(error){ lastCfgJSON=null; toast('⚠️ 雲端儲存失敗，資料暫存本機'); }
   },400);
 }
+/* 遠端變更觸發的重繪：合併多筆、避免連點時整個畫面在游標下重建 */
+let renderTimer=null;
+function scheduleRender(){ clearTimeout(renderTimer); renderTimer=setTimeout(renderAll,200); }
+const selfSu=new Set();                    // 記住「自己剛寫入」的報名 id，用來略過自己的回音
 async function sbSuUpsert(s){
   if(!sb||!cloudReady) return;
   const {error}=await sb.from('volunteer_signups').upsert(suRow(s));
@@ -593,16 +600,18 @@ async function sbSuDelete(ids){
 }
 async function sbFullPush(){ // 匯入 / 重置：整份蓋上雲端
   if(!sb||!cloudReady) return;
-  await sb.from('volunteer_config').upsert({id:1,data:configData()});
+  lastCfgJSON=JSON.stringify(configData());
+  await sb.from('volunteer_config').upsert({id:1,data:JSON.parse(lastCfgJSON)});
   await sb.from('volunteer_signups').delete().neq('id','');
   if(state.signups.length) await sb.from('volunteer_signups').insert(state.signups.map(suRow));
 }
 
 /* 報名紀錄的三個統一入口（本機立即生效＋背景同步雲端） */
-function suAdd(s){ state.signups.push(s); save(); sbSuUpsert(s); }
-function suUpdate(s){ save(); sbSuUpsert(s); }
+function suAdd(s){ selfSu.add(s.id); state.signups.push(s); save(); sbSuUpsert(s); }
+function suUpdate(s){ selfSu.add(s.id); save(); sbSuUpsert(s); }
 function suRemoveWhere(pred){
   const gone=state.signups.filter(pred);
+  gone.forEach(s=>selfSu.add(s.id));
   state.signups=state.signups.filter(s=>!pred(s));
   save(); sbSuDelete(gone.map(s=>s.id));
 }
@@ -624,20 +633,26 @@ async function cloudInit(){
       cloudReady=true;
       await sbFullPush(); // 雲端還是空的 → 把本機現況推上去
     }
+    lastCfgJSON=JSON.stringify(configData());   // 建立設定基準線，之後才認得出「自己的回音」
     setCloudStatus('cloud');
     renderAll();
     sb.channel('volunteer-sync')
       .on('postgres_changes',{event:'*',schema:'public',table:'volunteer_signups'},p=>{
-        if(p.eventType==='DELETE'){ const id=p.old&&p.old.id; if(id) state.signups=state.signups.filter(s=>s.id!==id); }
+        const id=(p.new&&p.new.id)||(p.old&&p.old.id);
+        if(id&&selfSu.has(id)){ selfSu.delete(id); return; }   // 自己剛寫的 → 本機已處理，略過重繪
+        if(p.eventType==='DELETE'){ if(id) state.signups=state.signups.filter(s=>s.id!==id); }
         else if(p.new&&p.new.id){ const su=rowSu(p.new); const i=state.signups.findIndex(s=>s.id===su.id); if(i>=0) state.signups[i]=su; else state.signups.push(su); }
         localStorage.setItem(STORE_KEY,JSON.stringify(state));
-        renderAll();
+        scheduleRender();
       })
       .on('postgres_changes',{event:'*',schema:'public',table:'volunteer_config'},p=>{
         if(p.new&&p.new.data&&p.new.data.people){
+          const json=JSON.stringify(p.new.data);
+          if(json===lastCfgJSON) return;        // 自己剛推的設定回音 → 略過
+          lastCfgJSON=json;
           Object.assign(state,p.new.data);
           localStorage.setItem(STORE_KEY,JSON.stringify(state));
-          renderAll();
+          scheduleRender();
         }
       })
       .subscribe();
