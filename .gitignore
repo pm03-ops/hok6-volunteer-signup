@@ -1,0 +1,14 @@
+# 只發佈志工報名工具，忽略同資料夾其他無關檔案
+benefit-workshop/
+需上傳檔案/
+績效方案AI討論工具.html
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+
+# 臨時檔
+_check.js
+*.tmp
