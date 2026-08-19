@@ -497,6 +497,17 @@
         </div>
         <input type="file" id="import-file" accept="application/json" style="display:none">
       </div>
+      <div class="card">
+        <h2 class="section">🔒 管理員通行碼</h2>
+        <p class="sub">設定後，切換到「設定」「報表」或在總覽標記出席時，需輸入此通行碼。留空＝不設限。<br>
+          <b>注意：</b>這是「防止路人誤改」的門檻，非強加密（進階者仍可能繞過）。真正機密資料請勿輸入。</p>
+        <div class="row">
+          <input type="text" id="admin-pass-input" placeholder="輸入新的通行碼" style="max-width:220px">
+          <button class="btn" id="admin-pass-save" style="flex:0 0 auto">儲存通行碼</button>
+          <button class="btn ghost" id="admin-pass-clear" style="flex:0 0 auto">清除（不設限）</button>
+        </div>
+        <div class="hint" id="admin-pass-status" style="margin-top:8px"></div>
+      </div>
     </div>
   </section>
 </main>
@@ -549,7 +560,8 @@ const SEED = () => ({
     {id:'e-fl3',date:'2026-07-23',activity:'樓層表演',locations:['6DE空橋'],slots:['14:30-15:30']},
     {id:'e-fl4',date:'2026-07-27',activity:'樓層表演',locations:[],slots:['14:30-15:30']},
   ],
-  signups: []
+  signups: [],
+  adminPass: ''   // 管理員通行碼（保護設定/報表/出席登記；空＝不設限）
 });
 
 let state = load();
@@ -570,7 +582,7 @@ function save(s){ if(s) state=s; localStorage.setItem(STORE_KEY, JSON.stringify(
    ========================================================= */
 function suRow(s){ return {id:s.id,person_id:s.personId,occ_id:s.occId,slot:s.slot||'',attended:!!s.attended,ts:s.ts||0}; }
 function rowSu(r){ return {id:r.id,personId:r.person_id,occId:r.occ_id,slot:r.slot||'',attended:!!r.attended,ts:Number(r.ts)||0}; }
-function configData(){ return {people:state.people,departments:state.departments,locationLib:state.locationLib,series:state.series,events:state.events}; }
+function configData(){ return {people:state.people,departments:state.departments,locationLib:state.locationLib,series:state.series,events:state.events,adminPass:state.adminPass||''}; }
 function setCloudStatus(mode){
   const el=$('#cloud-status'); if(!el) return;
   if(mode==='cloud') el.innerHTML='☁️ 已連線 Supabase 雲端——所有裝置即時同步，資料同時備份於此瀏覽器。';
@@ -777,7 +789,9 @@ function occMeta(occ){
 /* =========================================================
    分頁切換
    ========================================================= */
-$$('nav.tabs button').forEach(b=>b.onclick=()=>{
+let adminUnlocked=false;
+function needPass(view){ return (view==='admin'||view==='report') && (state.adminPass||'') && !adminUnlocked; }
+function activateTab(b){
   $$('nav.tabs button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
   $$('.view').forEach(v=>v.classList.remove('active')); $('#view-'+b.dataset.view).classList.add('active');
   document.querySelector('main').classList.toggle('wide', b.dataset.view==='overview');
@@ -785,6 +799,10 @@ $$('nav.tabs button').forEach(b=>b.onclick=()=>{
   if(b.dataset.view==='signup') renderSignupTab();
   if(b.dataset.view==='report') renderReport();
   if(b.dataset.view==='admin') renderAdmin();
+}
+$$('nav.tabs button').forEach(b=>b.onclick=()=>{
+  if(needPass(b.dataset.view)){ promptPass(ok=>{ if(ok){ adminUnlocked=true; activateTab(b); } }); return; }
+  activateTab(b);
 });
 $$('.adm-tabs button').forEach(b=>b.onclick=()=>{
   $$('.adm-tabs button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
@@ -1038,6 +1056,7 @@ function renderOverviewTable(){
   });
   t.innerHTML=head+body+'</tbody>';
   t.querySelectorAll('td.filled').forEach(td=>td.onclick=()=>{
+    if((state.adminPass||'')&&!adminUnlocked){ promptPass(ok=>{ if(ok){ adminUnlocked=true; toast('已解鎖，可標記出席'); } }); return; }
     const su=signupFor(td.dataset.p, td.dataset.o);
     if(su){ su.attended=!su.attended; suUpdate(su); renderOverviewTable(); }
   });
@@ -1171,6 +1190,7 @@ function renderAdmin(){
   renderPeople();
   renderDeptMgr();
   renderLocations();
+  renderPassStatus();
 }
 $$('#mode-seg button').forEach(b=>b.onclick=()=>{
   $$('#mode-seg button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); buildMode=b.dataset.mode;
@@ -1528,6 +1548,10 @@ $('#import-file').onchange=e=>{ const f=e.target.files[0]; if(!f)return; const r
   r.onload=()=>{ try{ const d=JSON.parse(r.result); if(d.people&&(d.events||d.series)){ save(d); sbFullPush(); toast('匯入成功'); currentPerson=null; renderAll(); } else toast('檔案格式不符'); }catch(err){ toast('匯入失敗'); } };
   r.readAsText(f); };
 $('#reset-btn').onclick=()=>confirmModal('確定重置為範例資料？現有報名紀錄將全部清除。',()=>{ save(SEED()); sbFullPush(); currentPerson=null; renderAll(); toast('已重置'); });
+function renderPassStatus(){ const el=$('#admin-pass-status'); if(!el) return;
+  el.innerHTML=(state.adminPass||'')?`目前狀態：<b style="color:var(--green)">已設定通行碼</b>${adminUnlocked?'（本次已解鎖）':''}`:'目前狀態：<b>未設定</b>（任何人都能進入設定/報表）'; }
+$('#admin-pass-save').onclick=()=>{ const v=$('#admin-pass-input').value.trim(); state.adminPass=v; adminUnlocked=true; save(); $('#admin-pass-input').value=''; renderPassStatus(); toast(v?'已設定通行碼 ✅':'已清除（不設限）'); };
+$('#admin-pass-clear').onclick=()=>{ state.adminPass=''; save(); renderPassStatus(); toast('已清除，不再需要通行碼'); };
 
 /* =========================================================
    Modal
@@ -1539,6 +1563,18 @@ function confirmModal(msg,onOk){
   bg.classList.add('show');
   $('#m-cancel').onclick=()=>bg.classList.remove('show');
   $('#m-ok').onclick=()=>{ bg.classList.remove('show'); onOk(); };
+}
+function promptPass(onOk){
+  const bg=$('#modal-bg');
+  $('#modal').innerHTML=`<h3>🔒 管理員通行碼</h3><p class="sub" style="margin:0 0 10px">此區（設定 / 報表 / 出席登記）需通行碼。</p>
+    <input type="password" id="m-pass" placeholder="請輸入通行碼">
+    <div class="flex-end"><button class="btn ghost" id="m-cancel">取消</button><button class="btn" id="m-ok">解鎖</button></div>`;
+  bg.classList.add('show');
+  const done=ok=>{ bg.classList.remove('show'); onOk(ok); };
+  $('#m-cancel').onclick=()=>done(false);
+  $('#m-ok').onclick=()=>{ if($('#m-pass').value===(state.adminPass||'')) done(true); else toast('通行碼錯誤'); };
+  $('#m-pass').addEventListener('keydown',e=>{ if(e.key==='Enter')$('#m-ok').click(); });
+  setTimeout(()=>{ const el=$('#m-pass'); if(el) el.focus(); },50);
 }
 /* 報名設定：人數上限（每時段分別設定）＋名額計算（cfg 可為單次 event 或每週 series） */
 function capsModal(cfg){
