@@ -138,12 +138,12 @@
   table.grid .colhead .aa{font-size:11px;color:var(--muted);font-weight:600}
 
   /* ---- admin ---- */
-  .adm-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
-  .adm-tabs button{border:1px solid var(--line);background:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;
+  .adm-tabs,.rep-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .adm-tabs button,.rep-tabs button{border:1px solid var(--line);background:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;
     font-weight:600;font-size:13px;color:var(--muted);font-family:inherit}
-  .adm-tabs button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
-  .adm-panel{display:none}
-  .adm-panel.active{display:block}
+  .adm-tabs button.active,.rep-tabs button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .adm-panel,.rep-panel{display:none}
+  .adm-panel.active,.rep-panel.active{display:block}
   .seg{display:inline-flex;background:#eef1f6;border-radius:9px;padding:4px;gap:4px}
   .seg button{border:0;background:transparent;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;
     font-size:13px;color:var(--muted);font-family:inherit}
@@ -307,57 +307,68 @@
 
   <!-- ============ 報表 ============ -->
   <section class="view" id="view-report">
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div>
-          <h2 class="section">參與報表</h2>
-          <p class="sub" style="margin:0">依月份統計時數達標狀況。達標＝當月時數達到目標（一般 2 小時、課級主管 1 小時；抵 2 小時活動算 2）。</p>
+    <div class="rep-tabs">
+      <button data-rep="month" class="active">📅 本月</button>
+      <button data-rep="range">📊 區間累計</button>
+    </div>
+
+    <!-- 本月 -->
+    <div class="rep-panel active" id="rep-month">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 class="section">本月參與報表</h2>
+            <p class="sub" style="margin:0">依月份統計時數達標狀況。達標＝當月時數達到目標（一般 2 小時、課級主管 1 小時；抵 2 小時活動算 2）。</p>
+          </div>
+          <div style="margin-left:auto;min-width:160px">
+            <label class="fld">月份</label>
+            <select id="report-month"></select>
+          </div>
         </div>
-        <div style="margin-left:auto;min-width:160px">
-          <label class="fld">月份</label>
-          <select id="report-month"></select>
-        </div>
+        <div class="stat-row" id="report-stats"></div>
       </div>
-      <div class="stat-row" id="report-stats"></div>
-    </div>
 
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div>
-          <h2 class="section">📊 區間累計 · 誰欠最多時數</h2>
-          <p class="sub" style="margin:0">選一段期間，把每個月「差多少小時」加總起來，最欠的排最前面。</p>
-        </div>
-        <div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap">
-          <div style="min-width:140px"><label class="fld">起始月份</label><select id="range-from"></select></div>
-          <div style="min-width:140px"><label class="fld">結束月份</label><select id="range-to"></select></div>
-        </div>
+      <div class="card">
+        <h2 class="section">各課室達標率</h2>
+        <div class="table-wrap"><table class="grid" id="dept-table"></table></div>
       </div>
-      <div class="stat-row" id="range-stats"></div>
-      <div style="margin:14px 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span class="sub" style="margin:0">顯示：</span>
-        <button class="btn xs" id="range-f-under">只看有欠時數</button>
-        <button class="btn xs ghost" id="range-f-all">全部人員</button>
-        <span class="sub" style="margin:0;font-size:12px">（點欄位標題可切換排序）</span>
+
+      <div class="card">
+        <h2 class="section">本月未達標名單 <span class="count-badge" id="nonpart-count"></span></h2>
+        <p class="sub">當月時數未達目標的啟用人員，依課室分組，並標示還差幾小時。</p>
+        <div id="nonpart-list"></div>
       </div>
-      <div class="table-wrap"><table class="grid" id="range-table"></table></div>
+
+      <div class="card">
+        <h2 class="section">出席登記</h2>
+        <p class="sub">選一場活動，勾選實際有到場服務的人（也可直接在「總覽」點格子切換）。</p>
+        <div style="max-width:360px;margin-bottom:14px"><select id="att-occ"></select></div>
+        <div id="att-list"></div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2 class="section">各課室達標率</h2>
-      <div class="table-wrap"><table class="grid" id="dept-table"></table></div>
-    </div>
-
-    <div class="card">
-      <h2 class="section">本月未達標名單 <span class="count-badge" id="nonpart-count"></span></h2>
-      <p class="sub">當月時數未達目標的啟用人員，依課室分組，並標示還差幾小時。</p>
-      <div id="nonpart-list"></div>
-    </div>
-
-    <div class="card">
-      <h2 class="section">出席登記</h2>
-      <p class="sub">選一場活動，勾選實際有到場服務的人（也可直接在「總覽」點格子切換）。</p>
-      <div style="max-width:360px;margin-bottom:14px"><select id="att-occ"></select></div>
-      <div id="att-list"></div>
+    <!-- 區間累計 -->
+    <div class="rep-panel" id="rep-range">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 class="section">📊 區間累計 · 誰欠最多時數</h2>
+            <p class="sub" style="margin:0">選一段期間，把每個月「差多少小時」加總起來，最欠的排最前面。</p>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap">
+            <div style="min-width:140px"><label class="fld">起始月份</label><select id="range-from"></select></div>
+            <div style="min-width:140px"><label class="fld">結束月份</label><select id="range-to"></select></div>
+          </div>
+        </div>
+        <div class="stat-row" id="range-stats"></div>
+        <div style="margin:14px 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="sub" style="margin:0">顯示：</span>
+          <button class="btn xs" id="range-f-under">只看有欠時數</button>
+          <button class="btn xs ghost" id="range-f-all">全部人員</button>
+          <span class="sub" style="margin:0;font-size:12px">（點欄位標題可切換排序）</span>
+        </div>
+        <div class="table-wrap"><table class="grid" id="range-table"></table></div>
+      </div>
     </div>
   </section>
 
@@ -824,6 +835,11 @@ function activateTab(b){
 $$('nav.tabs button').forEach(b=>b.onclick=()=>{
   if(needPass(b.dataset.view)){ promptPass(ok=>{ if(ok){ adminUnlocked=true; activateTab(b); } }); return; }
   activateTab(b);
+});
+$$('.rep-tabs button').forEach(b=>b.onclick=()=>{
+  $$('.rep-tabs button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  $$('.rep-panel').forEach(p=>p.classList.remove('active')); $('#rep-'+b.dataset.rep).classList.add('active');
+  if(b.dataset.rep==='range') renderRangeReport(); else renderReportBody();
 });
 $$('.adm-tabs button').forEach(b=>b.onclick=()=>{
   $$('.adm-tabs button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
