@@ -322,6 +322,27 @@
     </div>
 
     <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <h2 class="section">📊 區間累計 · 誰欠最多時數</h2>
+          <p class="sub" style="margin:0">選一段期間，把每個月「差多少小時」加總起來，最欠的排最前面。</p>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap">
+          <div style="min-width:140px"><label class="fld">起始月份</label><select id="range-from"></select></div>
+          <div style="min-width:140px"><label class="fld">結束月份</label><select id="range-to"></select></div>
+        </div>
+      </div>
+      <div class="stat-row" id="range-stats"></div>
+      <div style="margin:14px 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="sub" style="margin:0">顯示：</span>
+        <button class="btn xs" id="range-f-under">只看有欠時數</button>
+        <button class="btn xs ghost" id="range-f-all">全部人員</button>
+        <span class="sub" style="margin:0;font-size:12px">（點欄位標題可切換排序）</span>
+      </div>
+      <div class="table-wrap"><table class="grid" id="range-table"></table></div>
+    </div>
+
+    <div class="card">
       <h2 class="section">各課室達標率</h2>
       <div class="table-wrap"><table class="grid" id="dept-table"></table></div>
     </div>
@@ -1074,7 +1095,94 @@ function orderedDeptKeys(keys){
   return [...inOrder, ...extras];
 }
 
-function renderReport(){ bindMonthSelect($('#report-month'), renderReportBody); renderReportBody(); }
+function renderReport(){ bindMonthSelect($('#report-month'), renderReportBody); renderReportBody(); renderRangeReport(); }
+
+/* =========================================================
+   區間累計：一段期間內每人「合計欠多少小時」
+   ========================================================= */
+let rangeFrom=null, rangeTo=null, rangeOnlyUnder=true, rangeSort='lack';
+function monthsInRange(){
+  const all=allMonths(); if(!all.length) return [];
+  if(!rangeFrom||!all.includes(rangeFrom)) rangeFrom=all[0];
+  if(!rangeTo||!all.includes(rangeTo)) rangeTo=all[Math.min(all.length-1, all.indexOf(rangeFrom)+2)];
+  let a=ymIndex(rangeFrom), b=ymIndex(rangeTo);
+  if(a>b){ const t=a; a=b; b=t; }            // 起訖顛倒也能用
+  return all.filter(m=>{ const i=ymIndex(m); return i>=a&&i<=b; });
+}
+/* 逐月計算：每人每月 已做時數 / 目標 / 差額，再加總 */
+function rangeStats(){
+  const months=monthsInRange();
+  const ppl=state.people.filter(p=>p.active);
+  const rows=ppl.map(p=>({p, done:0, target:0, lack:0, underMonths:0, zeroMonths:0, months:[]}));
+  const byId={}; rows.forEach(r=>byId[r.p.id]=r);
+  months.forEach(m=>{
+    const occs=occurrencesInMonth(m);
+    if(!occs.length) return;                 // 該月無活動 → 不計目標，避免誤判為欠時數
+    rows.forEach(r=>{
+      const done=quotaUsed(r.p.id, occs);
+      const tgt=personTarget(r.p);
+      const lack=Math.max(0, tgt-done);
+      r.done+=done; r.target+=tgt; r.lack+=lack;
+      if(lack>0) r.underMonths++;
+      if(done===0) r.zeroMonths++;
+      r.months.push({m, done, tgt, lack});
+    });
+  });
+  return {months, rows};
+}
+function renderRangeReport(){
+  const all=allMonths();
+  const fs=$('#range-from'), ts=$('#range-to');
+  if(!fs||!ts) return;
+  monthsInRange();                            // 先確保 rangeFrom/rangeTo 有效
+  const opt=(sel,cur)=>{ sel.innerHTML=all.map(m=>`<option value="${m}" ${m===cur?'selected':''}>${monthLabel(m)}</option>`).join(''); };
+  opt(fs,rangeFrom); opt(ts,rangeTo);
+  fs.onchange=()=>{ rangeFrom=fs.value; renderRangeReport(); };
+  ts.onchange=()=>{ rangeTo=ts.value; renderRangeReport(); };
+  $('#range-f-under').onclick=()=>{ rangeOnlyUnder=true; renderRangeReport(); };
+  $('#range-f-all').onclick=()=>{ rangeOnlyUnder=false; renderRangeReport(); };
+  $('#range-f-under').className='btn xs'+(rangeOnlyUnder?'':' ghost');
+  $('#range-f-all').className='btn xs'+(rangeOnlyUnder?' ghost':'');
+
+  const {months, rows}=rangeStats();
+  const owing=rows.filter(r=>r.lack>0);
+  const never=rows.filter(r=>r.done===0);
+  const totalLack=rows.reduce((a,r)=>a+r.lack,0);
+  $('#range-stats').innerHTML=[
+    tile(months.length,'統計月數'),
+    tile(owing.length,'有欠時數人數',true),
+    tile(totalLack+' 時','全體合計欠時數'),
+    tile(never.length,'期間完全沒參與'),
+  ].join('');
+
+  let list=rangeOnlyUnder?owing:rows.slice();
+  const di=d=>{ const k=(state.departments||[]).indexOf(d||''); return k<0?999:k; };
+  const cmp={ lack:(a,b)=>b.lack-a.lack||b.zeroMonths-a.zeroMonths,
+              done:(a,b)=>a.done-b.done||b.lack-a.lack,
+              name:(a,b)=>a.p.name.localeCompare(b.p.name,'zh-Hant'),
+              dept:(a,b)=>di(a.p.dept)-di(b.p.dept)||b.lack-a.lack };
+  list.sort(cmp[rangeSort]||cmp.lack);
+
+  const t=$('#range-table');
+  if(!months.length){ t.innerHTML=`<tbody><tr><td class="muted-note">此區間沒有任何活動</td></tr></tbody>`; return; }
+  if(!list.length){ t.innerHTML=`<tbody><tr><td class="muted-note">🎉 這段期間所有人都達標了</td></tr></tbody>`; return; }
+  const th=(k,label)=>`<th class="sortable" data-k="${k}" style="cursor:pointer">${label}${rangeSort===k?' ▼':''}</th>`;
+  let head=`<thead><tr>${th('name','姓名')}${th('dept','課室')}${th('done','已做時數')}<th>應做時數</th>${th('lack','合計欠時數')}<th>未達標月數</th><th>零參與月數</th></tr></thead>`;
+  let body='<tbody>'+list.map(r=>{
+    const bad=r.lack>0;
+    return `<tr>
+      <th>${avatarHTML(r.p)}${r.p.name}${r.p.supervisor?'<span class="pill blue">主管</span>':''}</th>
+      <td>${r.p.dept||'未分課'}</td>
+      <td>${r.done}</td>
+      <td>${r.target}</td>
+      <td class="cnt ${bad?'under':''}" style="${bad?'color:var(--red)':''}"><b>${r.lack}</b></td>
+      <td>${r.underMonths}／${months.length}</td>
+      <td>${r.zeroMonths?`<b style="color:var(--red)">${r.zeroMonths}</b>`:0}</td>
+    </tr>`;
+  }).join('')+'</tbody>';
+  t.innerHTML=head+body;
+  t.querySelectorAll('th.sortable').forEach(el=>el.onclick=()=>{ rangeSort=el.dataset.k; renderRangeReport(); });
+}
 
 function renderReportBody(){
   const ym=curMonth();
